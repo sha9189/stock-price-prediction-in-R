@@ -1,0 +1,174 @@
+---
+title: "Stock Price Prediction"
+author: "Shailesh Mahto(50540379), Abhiroop(______), Shivam(______), Kshitij(______)"
+date: "2024-05-10"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyquant)
+
+library(tibble)
+library(dplyr)
+library(tidyr)
+library(readr)
+library(lubridate)
+library(ggplot2)
+library(ggfortify)
+
+# tsibble: tidy temporal data frames and tools
+library(tsibble)
+
+# fable (forecast table)
+library(fable)
+
+# fabletools - provides tools for building modelling packages, with a focus on time series forecasting
+library(fabletools)
+
+# Feature Extraction and Statistics for Time Series in tsibble format
+library(feasts)
+```
+
+```{r}
+apple <- tq_get('AAPL', from = '2020-01-01', to = '2024-05-01') 
+apple <- apple|>
+    select(date, close) |>
+    mutate(day = seq.int(nrow(apple))) |>
+    select(day, close) |> 
+    as_tsibble(
+      index = day
+    )
+autoplot(apple)
+```
+
+```{r}
+# using all data except last 100 days for training
+train_apple <- apple |> filter(day <= 989)
+```
+## ETS Model
+1. Used Box-cox transformation to stabilize variance
+2. Created ETS model and reported autoselected model: ETS(A,N,N)
+3. Checked residuals visually and using Ljung-Box test to ensure it is indistinguishable from white noise.
+4. Forecasred for the next 100 days and reported accuracy.
+```{r}
+train_apple %>%
+  features(close, features = guerrero) 
+lambda_guerrero = 1.232205
+
+apple_ets <- train_apple |>
+  model(ets = ETS(box_cox(close, lambda_guerrero)))
+
+apple_ets |> report()
+
+components(apple_ets) |> autoplot()
+
+apple_ets |>
+  gg_tsresiduals() + 
+  labs(title = "Residual Diagnostics for ETS(A, N, N)")
+
+# using lag=min(2m, T/5) for seasonal data and 10 for non-seasonal data
+augment(apple_ets) %>%
+  features(.innov, ljung_box, lag = 10)
+
+apple_ets_fc <- apple_ets %>%
+  forecast(h = 100) 
+
+apple_ets_fc%>%
+  autoplot(apple)
+
+apple_ets_fc |> accuracy(apple)
+
+```
+## ARIMA Model
+1. Used Box Cox transoformation to stabilize the variance
+2. Converted the data to stationary for modelling 
+3. Created an ARIMA(2,1,4) model.
+4. Ensured its residuals are indintinguishable from white noise-visually and using Ljung-Box test.
+5. Reported the model's performance.
+```{r}
+train_apple %>%
+  features(close, features = guerrero) 
+lambda_guerrero = 1.232205
+
+# transform data for constant variance
+train_apple %>% autoplot(box_cox(close, lambda_guerrero)) +
+  labs(y = "Box-Cox transformed closing price")
+
+# check for number of seasonal differencing = 0
+train_apple %>% features(box_cox(close, lambda_guerrero), unitroot_nsdiffs)
+
+# check for first-order differencing = 1
+train_apple |> features(box_cox(close, lambda_guerrero), unitroot_ndiffs)
+
+gg_tsdisplay(train_apple, difference(box_cox(close, lambda_guerrero)), plot_type='partial', lag_max = 90)
+# Obs: ACF drops to 0 quickly, so we can say that the data is now stationary
+
+train_apple |>
+  features(difference(box_cox(close, lambda_guerrero)), unitroot_kpss)
+# Obs: The data is stationary
+```
+
+
+```{r}
+arima_fit <- train_apple %>%
+  model(
+    arima_auto = ARIMA(box_cox(close, lambda_guerrero), stepwise = FALSE),
+    # arima_auto = ARIMA(box_cox(sale, lambda_guerrero), stepwise = False, approx = False)
+  )
+
+arima_fit |> pivot_longer(everything(), names_to = "Model name",
+                     values_to = "Orders")
+```
+Autoselected model : ARIMA(2,1,4)
+```{r}
+glance(arima_fit)
+
+arima_fit |> select(arima_auto) |> gg_tsresiduals(lag=36)
+
+augment(arima_fit) |>
+  filter(.model == "arima_auto") |>
+  features(.innov, ljung_box, lag=24, dof=6)
+```
+Observation: The residuals look like white noise, so the model is good. Hence its ready for forecasting.
+```{r}
+forecast(arima_fit, h=100) |>
+  filter(.model=='arima_auto') |>
+  autoplot(apple) +
+  labs(title = "Closing price actual and forecast using ARIMA(2,1,4)",
+       )
+
+forecast(arima_fit, h=100) |>
+  filter(.model=='arima_auto') |> 
+  accuracy(apple)
+
+```
+
+
+## Comparing models
+We observe that ARIMA model performs better than the ETS model but their performance is close. 
+```{r}
+train_apple |>
+   model(
+   arima = ARIMA(box_cox(close, lambda_guerrero) ~ pdq(2,1,4)),
+   ets = ETS(box_cox(close, lambda_guerrero) ~ error("A") + trend("N") + season("N"))
+   ) |>
+   forecast(h = 100) |>
+   accuracy(apple)
+```
+
+````{r}
+
+````
+
+````{r}
+
+````
+
+````{r}
+
+````
+
+````{r}
+
+````
