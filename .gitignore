@@ -3,3 +3,6 @@ play.rmd.R
 research/*
 
 *.html
+
+submission_folder
+LSTM_model.R

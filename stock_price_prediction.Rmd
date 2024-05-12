@@ -154,7 +154,7 @@ train_apple |>
    ets = ETS(box_cox(close, lambda_guerrero) ~ error("A") + trend("N") + season("N"))
    ) |>
    forecast(h = 100) |>
-   accuracy(apple)
+   accuracy(apple) 
 ```
 
 ````{r}
